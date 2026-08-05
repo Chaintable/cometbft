@@ -1,6 +1,7 @@
 package blocksync
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -27,6 +28,8 @@ const (
 
 	// ask for best height every 10s
 	statusUpdateIntervalSeconds = 10
+	// ask for best height every second when staying in block sync
+	continuousStatusUpdateIntervalSeconds = 1
 	// check if we should switch to consensus reactor
 	switchToConsensusIntervalSeconds = 1
 )
@@ -40,6 +43,17 @@ type consensusReactor interface {
 type peerError struct {
 	err    error
 	peerID p2p.ID
+}
+
+// ReactorOption configures a block sync reactor.
+type ReactorOption func(*Reactor)
+
+// ReactorContinuousMode keeps a non-validator node in block sync after it
+// catches up instead of switching to consensus.
+func ReactorContinuousMode(enabled bool) ReactorOption {
+	return func(reactor *Reactor) {
+		reactor.continuous = enabled
+	}
 }
 
 func (e peerError) Error() string {
@@ -57,6 +71,7 @@ type Reactor struct {
 	store         sm.BlockStore
 	pool          *BlockPool
 	blockSync     bool
+	continuous    bool
 	localAddr     crypto.Address
 	poolRoutineWg sync.WaitGroup
 
@@ -70,14 +85,14 @@ type Reactor struct {
 
 // NewReactor returns new reactor instance.
 func NewReactor(state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore,
-	blockSync bool, metrics *Metrics, offlineStateSyncHeight int64,
+	blockSync bool, metrics *Metrics, offlineStateSyncHeight int64, options ...ReactorOption,
 ) *Reactor {
-	return NewReactorWithAddr(state, blockExec, store, blockSync, nil, metrics, offlineStateSyncHeight)
+	return NewReactorWithAddr(state, blockExec, store, blockSync, nil, metrics, offlineStateSyncHeight, options...)
 }
 
 // Function added to keep existing API.
 func NewReactorWithAddr(state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore,
-	blockSync bool, localAddr crypto.Address, metrics *Metrics, offlineStateSyncHeight int64,
+	blockSync bool, localAddr crypto.Address, metrics *Metrics, offlineStateSyncHeight int64, options ...ReactorOption,
 ) *Reactor {
 
 	storeHeight := store.Height()
@@ -119,6 +134,9 @@ func NewReactorWithAddr(state sm.State, blockExec *sm.BlockExecutor, store *stor
 		errorsCh:     errorsCh,
 		metrics:      metrics,
 	}
+	for _, option := range options {
+		option(bcR)
+	}
 	bcR.BaseReactor = *p2p.NewBaseReactor("Reactor", bcR)
 	return bcR
 }
@@ -131,6 +149,12 @@ func (bcR *Reactor) SetLogger(l log.Logger) {
 
 // OnStart implements service.Service.
 func (bcR *Reactor) OnStart() error {
+	if bcR.continuous && bcR.localNodeHasVotingPower(bcR.initialState) {
+		return errors.New("continuous block sync mode cannot be used by a validator")
+	}
+	if bcR.continuous {
+		bcR.metrics.ContinuousMode.Set(1)
+	}
 	if bcR.blockSync {
 		err := bcR.pool.Start()
 		if err != nil {
@@ -147,6 +171,9 @@ func (bcR *Reactor) OnStart() error {
 
 // SwitchToBlockSync is called by the state sync reactor when switching to block sync.
 func (bcR *Reactor) SwitchToBlockSync(state sm.State) error {
+	if bcR.continuous && bcR.localNodeHasVotingPower(state) {
+		return errors.New("continuous block sync mode cannot be used by a validator")
+	}
 	bcR.blockSync = true
 	bcR.initialState = state
 
@@ -205,6 +232,7 @@ func (bcR *Reactor) AddPeer(peer p2p.Peer) {
 // RemovePeer implements Reactor by removing peer from the pool.
 func (bcR *Reactor) RemovePeer(peer p2p.Peer, _ interface{}) {
 	bcR.pool.RemovePeer(peer.ID())
+	bcR.metrics.MaxPeerHeight.Set(float64(bcR.pool.MaxPeerHeight()))
 }
 
 // respondToPeer loads a block and sends it to the requesting peer,
@@ -296,6 +324,7 @@ func (bcR *Reactor) Receive(e p2p.Envelope) { //nolint: dupl // recreated in a t
 	case *bcproto.StatusResponse:
 		// Got a peer status. Unverified.
 		bcR.pool.SetPeerRange(e.Src.ID(), msg.Base, msg.Height)
+		bcR.metrics.MaxPeerHeight.Set(float64(bcR.pool.MaxPeerHeight()))
 	case *bcproto.NoBlockResponse:
 		bcR.Logger.Debug("Peer does not have requested block", "peer", e.Src, "height", msg.Height)
 		bcR.pool.RedoRequestFrom(msg.Height, e.Src.ID())
@@ -313,6 +342,21 @@ func (bcR *Reactor) localNodeBlocksTheChain(state sm.State) bool {
 	return val.VotingPower >= total/3
 }
 
+func (bcR *Reactor) localNodeHasVotingPower(state sm.State) bool {
+	if len(bcR.localAddr) == 0 {
+		return false
+	}
+	_, val := state.Validators.GetByAddress(bcR.localAddr)
+	return val != nil && val.VotingPower > 0
+}
+
+func (bcR *Reactor) shouldSwitchToConsensus(state sm.State, caughtUp bool) bool {
+	if bcR.localNodeBlocksTheChain(state) {
+		return true
+	}
+	return caughtUp && (!bcR.continuous || bcR.localNodeHasVotingPower(state))
+}
+
 // Handle messages from the poolReactor telling the reactor what to do.
 // NOTE: Don't sleep in the FOR_LOOP or otherwise slow it down!
 func (bcR *Reactor) poolRoutine(stateSynced bool) {
@@ -322,7 +366,11 @@ func (bcR *Reactor) poolRoutine(stateSynced bool) {
 	trySyncTicker := time.NewTicker(trySyncIntervalMS * time.Millisecond)
 	defer trySyncTicker.Stop()
 
-	statusUpdateTicker := time.NewTicker(statusUpdateIntervalSeconds * time.Second)
+	statusUpdateInterval := statusUpdateIntervalSeconds
+	if bcR.continuous {
+		statusUpdateInterval = continuousStatusUpdateIntervalSeconds
+	}
+	statusUpdateTicker := time.NewTicker(time.Duration(statusUpdateInterval) * time.Second)
 	defer statusUpdateTicker.Stop()
 
 	if bcR.switchToConsensusMs == 0 {
@@ -338,6 +386,7 @@ func (bcR *Reactor) poolRoutine(stateSynced bool) {
 
 	lastHundred := time.Now()
 	lastRate := 0.0
+	continuousCaughtUpLogged := false
 
 	didProcessCh := make(chan struct{}, 1)
 
@@ -381,6 +430,8 @@ FOR_LOOP:
 		select {
 		case <-switchToConsensusTicker.C:
 			height, numPending, lenRequesters := bcR.pool.GetStatus()
+			maxPeerHeight := bcR.pool.MaxPeerHeight()
+			bcR.metrics.MaxPeerHeight.Set(float64(maxPeerHeight))
 			outbound, inbound, _ := bcR.Switch.NumPeers()
 			bcR.Logger.Debug("Consensus ticker", "numPending", numPending, "total", lenRequesters,
 				"outbound", outbound, "inbound", inbound, "lastHeight", state.LastBlockHeight)
@@ -417,11 +468,21 @@ FOR_LOOP:
 					"height", height,
 					"last_block_height", state.LastBlockHeight,
 					"initial_height", state.InitialHeight,
-					"max_peer_height", bcR.pool.MaxPeerHeight(),
+					"max_peer_height", maxPeerHeight,
 				)
 				continue FOR_LOOP
 			}
-			if bcR.pool.IsCaughtUp() || bcR.localNodeBlocksTheChain(state) {
+			caughtUp := bcR.pool.IsCaughtUp()
+			if bcR.continuous && caughtUp && !bcR.localNodeHasVotingPower(state) {
+				if !continuousCaughtUpLogged {
+					bcR.Logger.Info("Block sync caught up; remaining in continuous mode",
+						"height", height, "max_peer_height", maxPeerHeight)
+					continuousCaughtUpLogged = true
+				}
+				continue FOR_LOOP
+			}
+			continuousCaughtUpLogged = false
+			if bcR.shouldSwitchToConsensus(state, caughtUp) {
 				bcR.Logger.Info("Time to switch to consensus reactor!", "height", height)
 				if err := bcR.pool.Stop(); err != nil {
 					bcR.Logger.Error("Error stopping pool", "err", err)

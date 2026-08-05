@@ -142,6 +142,14 @@ func TestStateSyncConfigValidateBasic(t *testing.T) {
 func TestBlockSyncConfigValidateBasic(t *testing.T) {
 	cfg := config.TestBlockSyncConfig()
 	assert.NoError(t, cfg.ValidateBasic())
+	assert.Equal(t, config.BlockSyncModeAuto, cfg.Mode)
+
+	cfg.Mode = config.BlockSyncModeContinuous
+	assert.NoError(t, cfg.ValidateBasic())
+
+	cfg.Mode = "invalid"
+	assert.Error(t, cfg.ValidateBasic())
+	cfg.Mode = config.BlockSyncModeAuto
 
 	// tamper with version
 	cfg.Version = "v1"
