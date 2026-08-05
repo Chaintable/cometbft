@@ -469,6 +469,12 @@ chunk_fetchers = "{{ .StateSync.ChunkFetchers }}"
 #   1) "v0" - the default block sync implementation
 version = "{{ .BlockSync.Version }}"
 
+# Block Sync mode to use:
+#
+#   1) "auto"       - switch to consensus after catching up (default)
+#   2) "continuous" - remain in block sync; only for non-validator nodes
+mode = "{{ .BlockSync.Mode }}"
+
 #######################################################
 ###         Consensus Configuration Options         ###
 #######################################################

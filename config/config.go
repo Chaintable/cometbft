@@ -942,15 +942,22 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 //-----------------------------------------------------------------------------
 // BlockSyncConfig
 
+const (
+	BlockSyncModeAuto       = "auto"
+	BlockSyncModeContinuous = "continuous"
+)
+
 // BlockSyncConfig (formerly known as FastSync) defines the configuration for the CometBFT block sync service
 type BlockSyncConfig struct {
 	Version string `mapstructure:"version"`
+	Mode    string `mapstructure:"mode"`
 }
 
 // DefaultBlockSyncConfig returns a default configuration for the block sync service
 func DefaultBlockSyncConfig() *BlockSyncConfig {
 	return &BlockSyncConfig{
 		Version: "v0",
+		Mode:    BlockSyncModeAuto,
 	}
 }
 
@@ -963,11 +970,17 @@ func TestBlockSyncConfig() *BlockSyncConfig {
 func (cfg *BlockSyncConfig) ValidateBasic() error {
 	switch cfg.Version {
 	case "v0":
-		return nil
 	case "v1", "v2":
 		return fmt.Errorf("blocksync version %s has been deprecated. Please use v0 instead", cfg.Version)
 	default:
 		return fmt.Errorf("unknown blocksync version %s", cfg.Version)
+	}
+
+	switch cfg.Mode {
+	case "", BlockSyncModeAuto, BlockSyncModeContinuous:
+		return nil
+	default:
+		return fmt.Errorf("unknown blocksync mode %s", cfg.Mode)
 	}
 }
 

@@ -25,6 +25,10 @@ type Metrics struct {
 	BlockSizeBytes metrics.Gauge
 	// The height of the latest block.
 	LatestBlockHeight metrics.Gauge
+	// The highest block height reported by connected peers.
+	MaxPeerHeight metrics.Gauge
+	// Whether continuous block sync mode is configured. 1 if yes, 0 if no.
+	ContinuousMode metrics.Gauge
 }
 
 func (m *Metrics) recordBlockMetrics(block *types.Block) {

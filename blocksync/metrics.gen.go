@@ -44,6 +44,18 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "latest_block_height",
 			Help:      "The height of the latest block.",
 		}, labels).With(labelsAndValues...),
+		MaxPeerHeight: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "max_peer_height",
+			Help:      "The highest block height reported by connected peers.",
+		}, labels).With(labelsAndValues...),
+		ContinuousMode: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "continuous_mode",
+			Help:      "Whether continuous block sync mode is configured. 1 if yes, 0 if no.",
+		}, labels).With(labelsAndValues...),
 	}
 }
 
@@ -54,5 +66,7 @@ func NopMetrics() *Metrics {
 		TotalTxs:          discard.NewGauge(),
 		BlockSizeBytes:    discard.NewGauge(),
 		LatestBlockHeight: discard.NewGauge(),
+		MaxPeerHeight:     discard.NewGauge(),
+		ContinuousMode:    discard.NewGauge(),
 	}
 }
