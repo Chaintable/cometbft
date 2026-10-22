@@ -44,6 +44,9 @@
 
 ### FEATURES
 
+- `[blocksync]` Preserve opt-in continuous sync for non-validator Cronos v1.8 nodes;
+  reject simultaneous adaptive sync and retain peer-height metrics.
+
 - `[config]` Add EventBusBufferCapacity setting.
   ([\#5849](https://github.com/cometbft/cometbft/pull/5849))
 

@@ -74,6 +74,7 @@ type Reactor struct {
 
 	blockExec     *sm.BlockExecutor
 	store         sm.BlockStore
+	continuous    bool
 	pool          *BlockPool
 	localAddr     crypto.Address
 	poolRoutineWg sync.WaitGroup
@@ -100,6 +101,7 @@ func NewReactor(
 	localAddr crypto.Address,
 	offlineStateSyncHeight int64,
 	metrics *Metrics,
+	options ...ReactorOption,
 ) *Reactor {
 	storeHeight := store.Height()
 	if storeHeight == 0 {
@@ -156,6 +158,12 @@ func NewReactor(
 		intervalStatusUpdate:      intervalStatusUpdate,
 	}
 
+	for _, option := range options {
+		option(r)
+	}
+	if r.continuous {
+		r.intervalStatusUpdate = time.Second
+	}
 	r.BaseReactor = *p2p.NewBaseReactor("Blocksync", r)
 
 	return r
@@ -169,6 +177,15 @@ func (r *Reactor) SetLogger(l log.Logger) {
 
 // OnStart implements service.Service.
 func (r *Reactor) OnStart() error {
+	if r.continuous && r.localNodeHasVotingPower(r.initialState) {
+		return errors.New("continuous block sync mode cannot be used by a validator")
+	}
+	if r.continuous && r.adaptiveSyncEnabled {
+		return errors.New("continuous block sync mode cannot be combined with adaptive sync")
+	}
+	if r.continuous {
+		r.metrics.ContinuousMode.Set(1)
+	}
 	// noop
 	if !r.enabled.Load() {
 		return nil
@@ -220,6 +237,9 @@ func (r *Reactor) runPool(stateSynced bool) error {
 
 // Enable is called by the state sync reactor when switching to block sync.
 func (r *Reactor) Enable(state sm.State) error {
+	if r.continuous && r.localNodeHasVotingPower(state) {
+		return errors.New("continuous block sync mode cannot be used by a validator")
+	}
 	if !r.enabled.CompareAndSwap(false, true) {
 		return ErrAlreadyEnabled
 	}
@@ -277,6 +297,7 @@ func (r *Reactor) AddPeer(peer p2p.Peer) {
 // RemovePeer implements Reactor by removing peer from the pool.
 func (r *Reactor) RemovePeer(peer p2p.Peer, _ any) {
 	r.pool.RemovePeer(peer.ID())
+	r.metrics.MaxPeerHeight.Set(float64(r.pool.MaxPeerHeight()))
 }
 
 // respondToPeer loads a block and sends it to the requesting peer,
@@ -444,6 +465,7 @@ func (r *Reactor) Receive(e p2p.Envelope) {
 	case *bcproto.StatusResponse:
 		// Got a peer status. Unverified.
 		r.pool.SetPeerRange(e.Src.ID(), msg.Base, msg.Height)
+		r.metrics.MaxPeerHeight.Set(float64(r.pool.MaxPeerHeight()))
 	case *bcproto.NoBlockResponse:
 		r.Logger.Debug("Peer does not have requested block", "peer", e.Src, "height", msg.Height)
 		r.pool.RedoRequestFrom(msg.Height, e.Src.ID())
@@ -459,6 +481,21 @@ func (r *Reactor) localNodeBlocksTheChain(state sm.State) bool {
 	}
 	total := state.Validators.TotalVotingPower()
 	return val.VotingPower >= total/3
+}
+
+func (r *Reactor) localNodeHasVotingPower(state sm.State) bool {
+	if len(r.localAddr) == 0 {
+		return false
+	}
+	_, val := state.Validators.GetByAddress(r.localAddr)
+	return val != nil && val.VotingPower > 0
+}
+
+func (r *Reactor) shouldSwitchToConsensus(state sm.State, caughtUp bool) bool {
+	if r.localNodeBlocksTheChain(state) {
+		return true
+	}
+	return caughtUp && (!r.continuous || r.localNodeHasVotingPower(state))
 }
 
 // Handle messages from the poolReactor telling the reactor what to do.
@@ -546,8 +583,9 @@ FOR_LOOP:
 				continue FOR_LOOP
 			}
 
-			// keep syncing
-			if !r.pool.IsCaughtUp() && !r.localNodeBlocksTheChain(state) {
+			// Keep syncing in continuous mode, including after catching up.
+			r.metrics.MaxPeerHeight.Set(float64(r.pool.MaxPeerHeight()))
+			if !r.shouldSwitchToConsensus(state, r.pool.IsCaughtUp()) {
 				continue FOR_LOOP
 			}
 

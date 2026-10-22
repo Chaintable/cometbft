@@ -25,6 +25,10 @@ type Metrics struct {
 	BlockSizeBytes metrics.Gauge
 	// The height of the latest block.
 	LatestBlockHeight metrics.Gauge
+	// The highest block height reported by connected peers.
+	MaxPeerHeight metrics.Gauge
+	// Whether continuous block sync mode is configured.
+	ContinuousMode metrics.Gauge
 
 	// AlreadyIncludedBlocks blocks that were already included in the chain
 	AlreadyIncludedBlocks metrics.Counter `metrics_name:"already_included_blocks"`

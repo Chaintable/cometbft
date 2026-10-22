@@ -1207,8 +1207,14 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 //-----------------------------------------------------------------------------
 // BlockSyncConfig
 
+const (
+	BlockSyncModeAuto       = "auto"
+	BlockSyncModeContinuous = "continuous"
+)
+
 // BlockSyncConfig defines the configuration for the CometBFT block sync service
 type BlockSyncConfig struct {
+	Mode         string `mapstructure:"mode"`
 	Version      string `mapstructure:"version"`
 	AdaptiveSync bool   `mapstructure:"adaptive_sync"`
 }
@@ -1218,6 +1224,7 @@ func DefaultBlockSyncConfig() *BlockSyncConfig {
 	return &BlockSyncConfig{
 		Version:      "v0",
 		AdaptiveSync: false,
+		Mode:         BlockSyncModeAuto,
 	}
 }
 
@@ -1230,12 +1237,21 @@ func TestBlockSyncConfig() *BlockSyncConfig {
 func (cfg *BlockSyncConfig) ValidateBasic() error {
 	switch cfg.Version {
 	case v0:
-		return nil
 	case v1, v2:
 		return ErrDeprecatedBlocksyncVersion{Version: cfg.Version, Allowed: []string{v0}}
 	default:
 		return ErrUnknownBlocksyncVersion{cfg.Version}
 	}
+	switch cfg.Mode {
+	case "", BlockSyncModeAuto:
+	case BlockSyncModeContinuous:
+		if cfg.AdaptiveSync {
+			return errors.New("continuous block sync mode cannot be combined with adaptive sync")
+		}
+	default:
+		return fmt.Errorf("unknown blocksync mode %s", cfg.Mode)
+	}
+	return nil
 }
 
 //-----------------------------------------------------------------------------
