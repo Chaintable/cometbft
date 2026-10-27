@@ -321,6 +321,14 @@ func TestStateSyncConfigValidateBasic(t *testing.T) {
 func TestBlockSyncConfigValidateBasic(t *testing.T) {
 	cfg := config.TestBlockSyncConfig()
 	assert.NoError(t, cfg.ValidateBasic())
+	assert.Equal(t, config.BlockSyncModeAuto, cfg.Mode)
+
+	cfg.Mode = config.BlockSyncModeContinuous
+	assert.NoError(t, cfg.ValidateBasic())
+
+	cfg.Mode = "invalid"
+	assert.Error(t, cfg.ValidateBasic())
+	cfg.Mode = config.BlockSyncModeAuto
 
 	// tamper with version
 	cfg.Version = "v1"
@@ -382,4 +390,11 @@ func TestInstrumentationConfigValidateBasic(t *testing.T) {
 	// tamper with maximum open connections
 	cfg.MaxOpenConnections = -1
 	assert.Error(t, cfg.ValidateBasic())
+}
+
+func TestContinuousModeRejectsAdaptiveSync(t *testing.T) {
+	cfg := config.DefaultBlockSyncConfig()
+	cfg.Mode = config.BlockSyncModeContinuous
+	cfg.AdaptiveSync = true
+	require.ErrorContains(t, cfg.ValidateBasic(), "cannot be combined with adaptive sync")
 }

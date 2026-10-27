@@ -316,6 +316,7 @@ func createBlocksyncReactor(
 		localAddr,
 		offlineStateSyncHeight,
 		metrics,
+		blocksync.ReactorContinuousMode(config.BlockSync.Mode == cfg.BlockSyncModeContinuous),
 	)
 
 	bcReactor.SetLogger(logger.With("module", "blocksync"))

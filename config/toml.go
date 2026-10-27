@@ -571,6 +571,9 @@ version = "{{ .BlockSync.Version }}"
 # Run both BLOCKSYNC and CONSENSUS for improved liveness, connectivity, and performance.
 adaptive_sync = {{ .BlockSync.AdaptiveSync }}
 
+# "auto" switches to consensus after catching up; "continuous" is for non-validator nodes.
+mode = "{{ .BlockSync.Mode }}"
+
 #######################################################
 ###         Consensus Configuration Options         ###
 #######################################################

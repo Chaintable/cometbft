@@ -67,6 +67,15 @@ type ReactorPair struct {
 	app     proxy.AppConns
 }
 
+type advertisedHeightBlockStore struct {
+	sm.BlockStore
+	height atomic.Int64
+}
+
+func (s *advertisedHeightBlockStore) Height() int64 {
+	return s.height.Load()
+}
+
 type reactorOpts struct {
 	corruptedBlock          int64
 	allAbsentExtCommitBlock int64
@@ -1005,4 +1014,72 @@ func TestPeerNotDisconnectedOnLateBlockResponseAfterConsensusSwitch(t *testing.T
 		return switches[0].Peers().Size() != 1
 	}, 200*time.Millisecond, 5*time.Millisecond,
 		"serving peer was incorrectly disconnected by a late in-flight BlockResponse")
+}
+
+func TestContinuousBlockSyncRemainsActiveAndResumes(t *testing.T) {
+	config = test.ResetTestRoot("blocksync_reactor_continuous_test")
+	defer os.RemoveAll(config.RootDir)
+	genDoc, privVals := genesisDocWithValsPowers([]int64{30})
+
+	const initialAdvertisedHeight = int64(20)
+	const finalAdvertisedHeight = int64(40)
+	logger := log.NewNopLogger()
+
+	reactorPairs := []ReactorPair{
+		newReactor(t, logger, genDoc, privVals, finalAdvertisedHeight),
+		newReactor(t, logger, genDoc, privVals, 0),
+	}
+	peerStore := &advertisedHeightBlockStore{BlockStore: reactorPairs[0].reactor.store}
+	peerStore.height.Store(initialAdvertisedHeight)
+	reactorPairs[0].reactor.store = peerStore
+	reactorPairs[1].reactor.continuous = true
+	reactorPairs[1].reactor.intervalSwitchToConsensus = 50 * time.Millisecond
+
+	p2p.MakeConnectedSwitches(config.P2P, 2, func(i int, s *p2p.Switch) *p2p.Switch {
+		s.AddReactor("BLOCKSYNC", reactorPairs[i].reactor)
+		return s
+	}, p2p.Connect2Switches)
+
+	defer func() {
+		for _, r := range reactorPairs {
+			require.NoError(t, r.reactor.Stop())
+			require.NoError(t, r.app.Stop())
+		}
+	}()
+
+	require.Eventually(t, func() bool {
+		return reactorPairs[1].reactor.store.Height() >= initialAdvertisedHeight-1
+	}, 30*time.Second, 20*time.Millisecond)
+	require.Eventually(t, reactorPairs[1].reactor.pool.IsCaughtUp, 5*time.Second, 20*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	require.True(t, reactorPairs[1].reactor.pool.IsRunning())
+
+	peerStore.height.Store(finalAdvertisedHeight)
+
+	require.Eventually(t, func() bool {
+		return reactorPairs[1].reactor.store.Height() >= finalAdvertisedHeight-1
+	}, 30*time.Second, 20*time.Millisecond)
+	require.True(t, reactorPairs[1].reactor.pool.IsRunning())
+}
+
+func TestContinuousBlockSyncRejectsValidator(t *testing.T) {
+	config = test.ResetTestRoot("blocksync_reactor_continuous_validator_test")
+	defer os.RemoveAll(config.RootDir)
+	genDoc, privVals := genesisDocWithValsPowers([]int64{30})
+
+	reactorPair := newReactor(t, log.TestingLogger(), genDoc, privVals, 0)
+	defer func() {
+		require.NoError(t, reactorPair.app.Stop())
+	}()
+
+	pubKey, err := privVals[0].GetPubKey()
+	require.NoError(t, err)
+	reactorPair.reactor.localAddr = pubKey.Address()
+	reactorPair.reactor.continuous = true
+
+	require.ErrorContains(t, reactorPair.reactor.OnStart(), "cannot be used by a validator")
+	require.True(t, reactorPair.reactor.shouldSwitchToConsensus(reactorPair.reactor.initialState, true))
+
+	reactorPair.reactor.localAddr = nil
+	require.False(t, reactorPair.reactor.shouldSwitchToConsensus(reactorPair.reactor.initialState, true))
 }

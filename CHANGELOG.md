@@ -6,6 +6,8 @@
 
 ### BUG FIXES
 
+- `[mempool]` stop transaction broadcast routines when peers disconnect during sync
+  or when peers or the reactor stop while waiting for peer state.
 - `[blocksync]` tolerate late BlockResponse from honest peers after switching to consensus
   ([\#5959](https://github.com/cometbft/cometbft/pull/5959))
 - `[consensus]` correct loop condition in checkDoubleSigningRisk for height=1
@@ -43,6 +45,9 @@
   ([\#5946](https://github.com/cometbft/cometbft/pull/5946))
 
 ### FEATURES
+
+- `[blocksync]` Preserve opt-in continuous sync for non-validator Cronos v1.8 nodes;
+  reject simultaneous adaptive sync and retain peer-height metrics.
 
 - `[config]` Add EventBusBufferCapacity setting.
   ([\#5849](https://github.com/cometbft/cometbft/pull/5849))

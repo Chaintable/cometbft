@@ -76,6 +76,7 @@ func assertValidConfig(t *testing.T, configFile string) {
 		"propose",
 		"max",
 		"genesis",
+		"mode = \"auto\"",
 	}
 	for _, e := range elems {
 		assert.Contains(t, configFile, e)
