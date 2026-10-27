@@ -230,6 +230,8 @@ func (memR *Reactor) broadcastTxRoutine(peer p2p.Peer) {
 		select {
 		case <-memR.waitSyncCh:
 			// EnableInOutTxs() has set WaitSync() to false.
+		case <-peer.Quit():
+			return
 		case <-memR.Quit():
 			return
 		}
@@ -242,6 +244,9 @@ func (memR *Reactor) broadcastTxRoutine(peer p2p.Peer) {
 	// reactor. We should wait a few milliseconds and retry. We assume the pointer to the state is
 	// set once and never unset.
 	for {
+		if !memR.IsRunning() || !peer.IsRunning() {
+			return
+		}
 		if ps, ok := peer.Get(types.PeerStateKey).(PeerState); ok {
 			peerState = ps
 			break

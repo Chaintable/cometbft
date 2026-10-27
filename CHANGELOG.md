@@ -6,6 +6,8 @@
 
 ### BUG FIXES
 
+- `[mempool]` stop transaction broadcast routines when peers disconnect during sync
+  or when peers or the reactor stop while waiting for peer state.
 - `[blocksync]` tolerate late BlockResponse from honest peers after switching to consensus
   ([\#5959](https://github.com/cometbft/cometbft/pull/5959))
 - `[consensus]` correct loop condition in checkDoubleSigningRisk for height=1

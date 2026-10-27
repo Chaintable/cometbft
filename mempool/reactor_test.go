@@ -244,6 +244,10 @@ func mempoolLogger() log.Logger {
 
 // connect N mempool reactors through N switches
 func makeAndConnectReactors(config *cfg.Config, n int) ([]*Reactor, []*p2p.Switch) {
+	return makeAndConnectReactorsWithWaitSync(config, n, false)
+}
+
+func makeAndConnectReactorsWithWaitSync(config *cfg.Config, n int, waitSync bool) ([]*Reactor, []*p2p.Switch) {
 	reactors := make([]*Reactor, n)
 	logger := mempoolLogger()
 	for i := 0; i < n; i++ {
@@ -252,7 +256,7 @@ func makeAndConnectReactors(config *cfg.Config, n int) ([]*Reactor, []*p2p.Switc
 		mempool, cleanup := newMempoolWithApp(cc)
 		defer cleanup()
 
-		reactors[i] = NewReactor(config.Mempool, mempool, false) // so we dont start the consensus states
+		reactors[i] = NewReactor(config.Mempool, mempool, waitSync)
 		reactors[i].SetLogger(logger.With("validator", i))
 	}
 
