@@ -1,6 +1,6 @@
 module github.com/cometbft/cometbft
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -42,9 +42,10 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/supranational/blst v0.3.16
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	golang.org/x/crypto v0.49.0
-	golang.org/x/net v0.52.0
-	golang.org/x/sync v0.20.0
+	golang.org/x/crypto v0.59.0
+	golang.org/x/crypto/openpgp v0.1.0-deprecated
+	golang.org/x/net v0.62.0
+	golang.org/x/sync v0.25.0
 	gonum.org/v1/gonum v0.17.0
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -187,12 +188,12 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
-	golang.org/x/mod v0.33.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/mod v0.42.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/telemetry v0.0.0-20261009151841-97e8ea77aa2a // indirect
+	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.42.0 // indirect
+	golang.org/x/tools v0.52.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260120221211-b8f7ae30c516 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
